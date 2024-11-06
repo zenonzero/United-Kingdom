@@ -1,0 +1,74 @@
+from netmiko import ConnectHandler, NetmikoAuthenticationException, NetmikoTimeoutException
+
+# The details for SSH connection to R2
+r2_ssh = {
+    'device_type': 'cisco_ios',   # Device type for SSH
+    'host': '192.168.56.101',     # IP address of R2
+    'username': 'devasc',         # Username for SSH
+    'password': 'cisco123!',      # Password for SSH
+    'secret': 'cisco123!',        # Enable password if required
+    'port': 22,                   # SSH port (default is 22)
+    'timeout': 10,                # Timeout in seconds for connections
+}
+
+# Hardening guidelines
+hardening_guidelines = [
+    "hostname",                   # Should be properly set
+    "no service password-recovery",  # Disable password recovery for security
+    "logging buffered 4096",      # Enable local logging
+    "logging trap informational", # Ensure logging level is set for events
+    "ip domain-name example.com", # Set domain name for secure communication
+    "enable secret",              # Ensure enable secret is configured for encrypted access
+]
+
+try:
+    # Establish an SSH connection to the device
+    connection = ConnectHandler(**r2_ssh)
+
+    # Enter enable mode (in case enable secret is set)
+    if not connection.check_enable_mode():
+        connection.enable()
+
+    # Retrieve the current running configuration
+    run_config = connection.send_command('show running-config')
+
+    # Save the running configuration to a local file
+    with open('run_config_ssh_netmiko.txt', 'w') as file:
+        file.write(run_config)
+
+    # Compare the running configuration with hardening guidelines
+    print("Comparing current configuration against hardening guidelines...\n")
+    hardening_missing = [line for line in hardening_guidelines if line not in run_config]
+
+    if hardening_missing:
+        print("The following hardening configurations are missing:")
+        for line in hardening_missing:
+            print(line)
+    else:
+        print("The device configuration meets all hardening guidelines.")
+
+    # Configure syslog for event logging
+    syslog_server_ip = '192.168.56.200'  # Example syslog server IP
+    syslog_config_commands = [
+        f'logging host {syslog_server_ip}',  # Set syslog server IP
+        'logging trap informational',       # Set logging level to 'informational'
+    ]
+    connection.send_config_set(syslog_config_commands)
+
+    # Save the configuration after syslog configuration
+    connection.save_config()
+
+    # Disconnect from the device
+    connection.disconnect()
+
+    # Confirmation message
+    print("Syslog has been configured successfully and changes have been saved.")
+
+except NetmikoAuthenticationException as auth_error:
+    print("Authentication failed. Please check the username or password.")
+    print(auth_error)
+except NetmikoTimeoutException as timeout_error:
+    print("Connection timed out. Ensure the device is accessible and SSH is enabled.")
+    print(timeout_error)
+except Exception as e:
+    print(f"An unexpected error occurred: {e}")
